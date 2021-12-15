@@ -1,0 +1,123 @@
+#! /usr/bin/env python
+
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('--gt', required=True, help='Ground truth annotation in COCO format.')
+parser.add_argument('--dt', required=True, help='Detection result.')
+parser.add_argument('--recall', help='Specify recall in [0-100], e.g. 78 or 78,50,90.')
+args = parser.parse_args()
+
+from pycocotools.coco import COCO
+from pycocotools.cocoeval import COCOeval
+
+import numpy as np
+
+def print_recall_input(recall):
+    print('Input recall values:')
+    for i, cate in enumerate(args.gt.dataset['categories']):
+        print('\t'.join([
+            str(cate['id']),
+            str(cate['name']),
+            str(recall[i])
+        ]))
+
+def rd(x):
+    return round(x, 3)
+
+def join(sep, alist):
+    return sep.join([str(x) for x in alist])
+
+def print_row(row):
+    to_print = []
+    for x in row:
+        if isinstance(x, float):
+            x = rd(x)
+        to_print.append(x)
+    print(join('\t', to_print))
+
+def print_detailed_ap(E):
+    print('AP of each category(area=all, max_det=100):')
+    print('\t'.join(['cid', 'mAP'] \
+                    + ['AP{}'.format(ap) for ap in range(50, 100, 5)] \
+                    + ['category']))
+    prec = E.eval['precision'][:, :, :, 0, 2]
+    num_cates = args.gt.dataset['categories'].__len__()
+
+    ap_tab = []
+
+    for i, cate in enumerate(args.gt.dataset['categories']):
+        cur_prec = prec[:, :, i]
+        ap_by_iou = cur_prec.mean(-1)
+        cate_map = ap_by_iou.mean()
+        row = [cate_map] + list(ap_by_iou)
+        
+        ap_tab.append(row)
+        row = [cate['id']] + [cate_map] + list(ap_by_iou) + [cate['name']]
+        print_row(row)
+    num_cols = ap_tab[0].__len__()
+    ap_tab_mean = [np.mean([row[i] for row in ap_tab]) for i in range(num_cols)]
+    print_row(['mean'] + ap_tab_mean + ['all'])
+        
+
+# precision is an nd array 
+def print_ap_each_category(E):
+    print('AP of each category(area=all, max_det=100):')
+    print('\t'.join(['cid', 'mAP', 'AP50', 'AP75', 'category']))
+    prec = E.eval['precision'][:, :, :, 0, 2]
+    map_res = []
+    for i, cate in enumerate(args.gt.dataset['categories']):
+        cur_prec = prec[:,:,i]
+        print('\t'.join([
+            str(cate['id']),
+            str(rd(cur_prec.mean())),
+            str(rd(cur_prec[0].mean())),
+            str(rd(cur_prec[5].mean())),
+            str(cate['name'])
+        ]))
+        map_res.append(cur_prec.mean())
+    print('mAP of all:', sum(map_res)/len(map_res))
+
+def print_pr(E, recall):
+    print('Precision under given recall input(iou=0.5, area=all, max_det=100):')
+    print('\t'.join(['cid', 'precision', 'recall', 'category']))
+    prec = E.eval['precision'][0,:,:,0,2]
+    for i, cur_recall in enumerate(recall):
+        cate = args.gt.dataset['categories'][i]
+        cur_prec = prec[:, i]
+        print('\t'.join([
+            str(cate['id']),
+            str(rd(cur_prec[cur_recall])),
+            str(rd(cur_recall / 100)),
+            str(cate['name'])
+        ]))
+        pass
+
+def main():
+    if args.recall is None:
+        args.recall = '90'
+    args.gt = COCO(args.gt)
+    args.dt = args.gt.loadRes(args.dt)
+    recall = [int(x) for x in args.recall.split(',') if len(x) >0]
+    num_cates = len(args.gt.cats)
+    for rc in recall:
+        assert rc >= 0 and rc <= 100, 'Recall value should be in [0,100]: {}'.format(rc)
+    if len(recall) == 1:
+        recall = recall * num_cates
+    elif len(recall) == num_cates:
+        pass
+    else:
+        raise ValueError('Number of recall inputs should be either 1 or number of categories.')
+
+    print_recall_input(recall)
+    E = COCOeval(args.gt, args.dt, 'bbox')
+    E.evaluate()
+    E.accumulate()
+    print_detailed_ap(E)
+    print_ap_each_category(E)
+    print_pr(E, recall)
+    E.summarize()    
+
+
+if __name__ == '__main__':
+    main()
+    pass

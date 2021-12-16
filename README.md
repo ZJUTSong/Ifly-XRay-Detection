@@ -10,6 +10,8 @@
 
 赛题链接：http://challenge.xfyun.cn/topic/info?type=Xray-2021
 
+baseline链接：https://github.com/ZJUTSong/Ifly-XRay-Detection
+
 
 
 ### 二、赛题内容及分析
